@@ -4,26 +4,26 @@ dsl = """
 model
   schema 1.1
 
-type doc
+type organization
   relations
-    define can_change_owner: owner
-    define can_read: viewer or owner or viewer from parent
-    define can_share: owner or owner from parent
-    define can_write: owner or owner from parent
+    define member: [user] or owner
     define owner: [user]
-    define parent: [folder]
-    define viewer: [user, user:*, group#member]
+    define repo_admin: [user, organization#member]
+    define repo_reader: [user, organization#member]
+    define repo_writer: [user, organization#member]
 
-type folder
+type repo
   relations
-    define can_create_file: owner
-    define owner: [user]
-    define parent: [folder]
-    define viewer: [user, user:*, group#member] or owner or viewer from parent
-
-type group
+    define admin: [user, team#member] or repo_admin from owner
+    define maintainer: [user, team#member] or admin
+    define owner: [organization]
+    define reader: [user, team#member] or triager or repo_reader from owner
+    define triager: [user] but not repo_reader from owner
+    define writer: [user, user:*, team#member] or maintainer or repo_writer from owner
+    
+type team
   relations
-    define member: [user]
+    define member: [user, team#member]
 
 type user
 """
@@ -85,6 +85,15 @@ def parse_relation_def(definition):
             }
         }
 
+    if ' but not ' in definition:
+        parts = definition.split(' but not ')
+        return {
+            "difference": {
+                "base": parse_relation_def(parts[0].strip()),
+                "subtract": parse_relation_def(parts[1].strip())
+            }
+        }
+
     if '[' in definition and ']' in definition:
         return {"this": {}}
 
@@ -113,7 +122,9 @@ def parse_relation_def(definition):
 
 def parse_metadata_relation_def(definition):
     if '[' in definition and ']' in definition:
-        definitions = definition.strip('[]').split(',')
+        start = definition.index("[") + 1
+        end = definition.index("]")
+        definitions = definition[start:end].split(',')
         directly_related_user_types = []
         for defn in definitions:
             defn = defn.strip()
@@ -121,7 +132,6 @@ def parse_metadata_relation_def(definition):
                 directly_related_user_types.append({"type": defn.split(':')[0], "wildcard": {}})
             elif '#' in defn:
                 type_part, relation_part = defn.split('#')
-                relation_part = relation_part.split(']')[0]  # Split at ] to avoid unwanted characters
                 directly_related_user_types.append({"type": type_part, "relation": relation_part})
             else:
                 directly_related_user_types.append({"type": defn})
